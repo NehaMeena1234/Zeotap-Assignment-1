@@ -1,0 +1,17 @@
+# Django & Django REST Framework
+Django==4.2.10
+djangorestframework==3.14.0
+
+
+# CORS headers for API
+django-cors-headers==4.3.1
+
+
+# Frontend
+django-bootstrap5==23.3
+django-select2==8.1.2
+
+
+# Python Version
+# Requires Python >= 3.8
+python~=3.8.0
