@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rule Engine</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <style>
+        .result {
+            margin-top: 20px;
+        }
+        .select2-container {
+            width: 100% !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mt-5">Rule Engine</h1>
+        
+        <!-- Rule Selection -->
+        <div class="form-group">
+            <label for="ruleSelect">Select Existing Rules</label>
+            <select class="form-control" id="ruleSelect" multiple>
+                {% for rule in rules %}
+                    <option value="{{ rule.id }}">{{ rule.rule_string }}</option>
+                {% endfor %}
+            </select>
+            <button type="button" class="btn btn-secondary mt-2" onclick="combineRules()">Combine Selected Rules</button>
+        </div>
+
+        <!-- Rule Creation Form -->
+        <form id="ruleForm">
+            <div class="form-group">
+                <label for="ruleString">Enter/Modify Rule String</label>
+                <textarea class="form-control" id="ruleString" rows="3" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Create AST</button>
+        </form>
+        
+        <div class="result">
+            <h2>Generated AST:</h2>
+            <pre id="astOutput"></pre>
+        </div>
+
+        <hr>
+
+        <!-- Evaluation Form -->
+        <h2>Evaluate Data Against Rule</h2>
+        <form id="evaluateForm">
+            <div class="form-group">
+                <label for="evaluateData">Enter JSON Data</label>
+                <textarea class="form-control" id="evaluateData" rows="3" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-success">Evaluate</button>
+        </form>
+        <div class="result">
+            <h2>Evaluation Result:</h2>
+            <pre id="evaluationOutput"></pre>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script>
+        // Initialize Select2
+        $(document).ready(function() {
+            $('#ruleSelect').select2({
+                placeholder: "Select rules to combine",
+                allowClear: true
+            });
+        });
+
+        // CSRF token handling
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        const csrftoken = getCookie('csrftoken');
+
+        // Combine selected rules
+        async function combineRules() {
+            const selectedRules = $('#ruleSelect').val();
+            if (!selectedRules || selectedRules.length === 0) {
+                alert('Please select at least one rule');
+                return;
+            }
+
+            try {
+                const response = await fetch('combine_rules/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken,
+                    },
+                    body: JSON.stringify({ rule_ids: selectedRules }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                // Place combined rule string in the ruleString textarea for user to edit
+                document.getElementById('ruleString').value = data.combined_string;
+            } catch (error) {
+                alert(`Error combining rules: ${error.message}`);
+            }
+        }
+
+        // Create rule form submission
+        document.getElementById('ruleForm').onsubmit = async function(e) {
+            e.preventDefault();
+            const ruleString = document.getElementById('ruleString').value;
+
+            try {
+                const response = await fetch('create_rule/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken,
+                    },
+                    body: JSON.stringify({ rule_string: ruleString }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                document.getElementById('astOutput').innerText = JSON.stringify(data.ast, null, 2);
+                
+                // Update the dropdown with new rules
+                const select = document.getElementById('ruleSelect');
+                select.innerHTML = data.rules.map(rule => 
+                    `<option value="${rule.id}">${rule.rule_string}</option>`
+                ).join('');
+                
+                // Refresh Select2
+                $('#ruleSelect').select2({
+                    placeholder: "Select rules to combine",
+                    allowClear: true
+                });
+            } catch (error) {
+                document.getElementById('astOutput').innerText = `Error: ${error.message}`;
+            }
+        };
+
+        // Evaluate form submission
+        document.getElementById('evaluateForm').onsubmit = async function(e) {
+            e.preventDefault();
+            const evaluateData = document.getElementById('evaluateData').value;
+            const astOutput = document.getElementById('astOutput').innerText;
+
+            if (!astOutput) {
+                document.getElementById('evaluationOutput').innerText = 'Please generate an AST first.';
+                return;
+            }
+
+            const astData = JSON.parse(astOutput);
+
+            try {
+                const response = await fetch('evaluate_rule/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken,
+                    },
+                    body: JSON.stringify({
+                        ast: astData,
+                        data: JSON.parse(evaluateData),
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const resultData = await response.json();
+                document.getElementById('evaluationOutput').innerText = resultData.result;
+            } catch (error) {
+                document.getElementById('evaluationOutput').innerText = `Error: ${error.message}`;
+            }
+        };
+    </script>
+</body>
+</html>
